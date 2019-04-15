@@ -170,6 +170,15 @@ class Stripe {
     )
     return StripeModule.createSourceWithParams(params)
   }
+
+  createPaymentUrl = (params = {}) => {
+    checkInit(this)
+    checkArgs(
+        types.createSourceWithParamsPropType,
+        params, 'params', 'Stripe.createSourceWithParams'
+    )
+    return StripeModule.createPaymentUrl(params)
+  }
 }
 
 export default new Stripe()

@@ -312,6 +312,100 @@ public class StripeModule extends ReactContextBaseJavaModule {
     });
   }
 
+  @ReactMethod
+  public void createPaymentUrl(final ReadableMap options, final Promise promise) {
+    String sourceType = options.getString("type");
+    SourceParams sourceParams = null;
+    switch (sourceType) {
+      case "alipay":
+        sourceParams = SourceParams.createAlipaySingleUseParams(
+            options.getInt("amount"),
+            options.getString("currency"),
+            getStringOrNull(options, "name"),
+            getStringOrNull(options, "email"),
+            options.getString("returnURL"));
+        break;
+      case "bancontact":
+        sourceParams = SourceParams.createBancontactParams(
+            options.getInt("amount"),
+            options.getString("name"),
+            options.getString("returnURL"),
+            getStringOrNull(options, "statementDescriptor"),
+            options.getString("preferredLanguage"));
+        break;
+      case "giropay":
+        sourceParams = SourceParams.createGiropayParams(
+            options.getInt("amount"),
+            options.getString("name"),
+            options.getString("returnURL"),
+            getStringOrNull(options, "statementDescriptor"));
+        break;
+      case "ideal":
+        sourceParams = SourceParams.createIdealParams(
+            options.getInt("amount"),
+            options.getString("name"),
+            options.getString("returnURL"),
+            getStringOrNull(options, "statementDescriptor"),
+            getStringOrNull(options, "bank"));
+        break;
+      case "sepaDebit":
+        sourceParams = SourceParams.createSepaDebitParams(
+            options.getString("name"),
+            options.getString("iban"),
+            getStringOrNull(options, "addressLine1"),
+            options.getString("city"),
+            options.getString("postalCode"),
+            options.getString("country"));
+        break;
+      case "sofort":
+        sourceParams = SourceParams.createSofortParams(
+            options.getInt("amount"),
+            options.getString("returnURL"),
+            options.getString("country"),
+            getStringOrNull(options, "statementDescriptor"));
+        break;
+      case "threeDSecure":
+        sourceParams = SourceParams.createThreeDSecureParams(
+            options.getInt("amount"),
+            options.getString("currency"),
+            options.getString("returnURL"),
+            options.getString("card"));
+        break;
+			case "card":
+				sourceParams = SourceParams.createCardParams(Converters.createCard(options));
+		  	break;
+    }
+
+    ArgCheck.nonNull(sourceParams);
+
+    mStripe.createSource(sourceParams, new SourceCallback() {
+      @Override
+      public void onError(Exception error) {
+        promise.reject(toErrorCode(error));
+      }
+
+      @Override
+      public void onSuccess(Source source) {
+        if (Source.REDIRECT.equals(source.getFlow())) {
+          Activity currentActivity = getCurrentActivity();
+          if (currentActivity == null) {
+            promise.reject(
+              getErrorCode(mErrorCodes, "activityUnavailable"),
+              getDescription(mErrorCodes, "activityUnavailable")
+            );
+          } else {
+            mCreateSourcePromise = promise;
+            mCreatedSource = source;
+            String redirectUrl = source.getRedirect().getUrl();
+            promise.resolve(redirectUrl);
+          }
+        } else {
+          promise.resolve(convertSourceToWritableMap(source));
+        }
+      }
+    });
+  }
+
   void processRedirect(@Nullable Uri redirectData) {
     if (mCreatedSource == null || mCreateSourcePromise == null) {
 
