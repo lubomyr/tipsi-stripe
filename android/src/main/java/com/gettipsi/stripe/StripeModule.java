@@ -454,6 +454,41 @@ public class StripeModule extends ReactContextBaseJavaModule {
     });
   }
 
+  @ReactMethod
+  public void createPaymentUrl(final ReadableMap options, final Promise promise) {
+
+    SourceParams sourceParams = extractSourceParams(options);
+
+    ArgCheck.nonNull(sourceParams);
+
+    mStripe.createSource(sourceParams, new SourceCallback() {
+      @Override
+      public void onError(Exception error) {
+        promise.reject(toErrorCode(error));
+      }
+
+      @Override
+      public void onSuccess(Source source) {
+        if (Source.SourceFlow.REDIRECT.equals(source.getFlow())) {
+          Activity currentActivity = getCurrentActivity();
+          if (currentActivity == null) {
+            promise.reject(
+              getErrorCode(mErrorCodes, "activityUnavailable"),
+              getDescription(mErrorCodes, "activityUnavailable")
+            );
+          } else {
+            mCreateSourcePromise = promise;
+            mCreatedSource = source;
+            String redirectUrl = source.getRedirect().getUrl();
+            promise.resolve(redirectUrl);
+          }
+        } else {
+          promise.resolve(convertSourceToWritableMap(source));
+        }
+      }
+    });
+  }
+
   private ConfirmSetupIntentParams extractConfirmSetupIntentParams(final ReadableMap options) {
     ReadableMap paymentMethod = getMapOrNull(options, "paymentMethod");
     String paymentMethodId = getStringOrNull(options, "paymentMethodId");

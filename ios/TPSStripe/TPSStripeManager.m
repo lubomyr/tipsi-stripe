@@ -764,6 +764,101 @@ RCT_EXPORT_METHOD(createSourceWithParams:(NSDictionary *)params
     }];
 }
 
+RCT_EXPORT_METHOD(createPaymentUrl:(NSDictionary *)params
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
+    if(!requestIsCompleted) {
+        NSDictionary *error = [errorCodes valueForKey:kErrorKeyBusy];
+        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
+        return;
+    }
+    requestIsCompleted = NO;
+
+    NSString *sourceType = params[@"type"];
+    STPSourceParams *sourceParams;
+    if ([sourceType isEqualToString:@"bancontact"]) {
+        sourceParams = [STPSourceParams bancontactParamsWithAmount:[[params objectForKey:@"amount"] unsignedIntegerValue] name:params[@"name"] returnURL:params[@"returnURL"] statementDescriptor:params[@"statementDescriptor"]];
+    }
+    if ([sourceType isEqualToString:@"giropay"]) {
+        sourceParams = [STPSourceParams giropayParamsWithAmount:[[params objectForKey:@"amount"] unsignedIntegerValue] name:params[@"name"] returnURL:params[@"returnURL"] statementDescriptor:params[@"statementDescriptor"]];
+    }
+    if ([sourceType isEqualToString:@"ideal"]) {
+        sourceParams = [STPSourceParams idealParamsWithAmount:[[params objectForKey:@"amount"] unsignedIntegerValue] name:params[@"name"] returnURL:params[@"returnURL"] statementDescriptor:params[@"statementDescriptor"] bank:params[@"bank"]];
+    }
+    if ([sourceType isEqualToString:@"sepaDebit"]) {
+        sourceParams = [STPSourceParams sepaDebitParamsWithName:params[@"name"] iban:params[@"iban"] addressLine1:params[@"addressLine1"] city:params[@"city"] postalCode:params[@"postalCode"] country:params[@"country"]];
+    }
+    if ([sourceType isEqualToString:@"sofort"]) {
+        sourceParams = [STPSourceParams sofortParamsWithAmount:[[params objectForKey:@"amount"] unsignedIntegerValue] returnURL:params[@"returnURL"] country:params[@"country"] statementDescriptor:params[@"statementDescriptor"]];
+    }
+    if ([sourceType isEqualToString:@"threeDSecure"]) {
+        sourceParams = [STPSourceParams threeDSecureParamsWithAmount:[[params objectForKey:@"amount"] unsignedIntegerValue] currency:params[@"currency"] returnURL:params[@"returnURL"] card:params[@"card"]];
+    }
+    if ([sourceType isEqualToString:@"alipay"]) {
+        sourceParams = [STPSourceParams alipayParamsWithAmount:[[params objectForKey:@"amount"] unsignedIntegerValue] currency:params[@"currency"] returnURL:params[@"returnURL"]];
+    }
+    if ([sourceType isEqualToString:@"card"]) {
+        sourceParams = [STPSourceParams cardParamsWithCard:[self extractCardParamsFromDictionary:params]];
+    }
+
+    STPAPIClient* stripeAPIClient = [self newAPIClient];
+
+    [stripeAPIClient createSourceWithParams:sourceParams completion:^(STPSource *source, NSError *error) {
+        self->requestIsCompleted = YES;
+
+        if (error) {
+            NSDictionary *jsError = [self->errorCodes valueForKey:kErrorKeyApi];
+            reject(jsError[kErrorKeyCode], error.localizedDescription, nil);
+        } else {
+            if (source.redirect) {
+                self.redirectContext = [[STPRedirectContext alloc] initWithSource:source completion:^(NSString *sourceID, NSString *clientSecret, NSError *error) {
+                    if (error) {
+                        NSDictionary *jsError = [self->errorCodes valueForKey:kErrorKeyRedirectSpecific];
+                        reject(jsError[kErrorKeyCode], error.localizedDescription, nil);
+                    } else {
+                        [stripeAPIClient startPollingSourceWithId:sourceID clientSecret:clientSecret timeout:10 completion:^(STPSource *source, NSError *error) {
+                            if (error) {
+                                NSDictionary *jsError = [self->errorCodes valueForKey:kErrorKeyApi];
+                                reject(jsError[kErrorKeyCode], error.localizedDescription, nil);
+                            } else {
+                                switch (source.status) {
+                                    case STPSourceStatusChargeable:
+                                    case STPSourceStatusConsumed:
+                                        resolve([self convertSourceObject:source]);
+                                        break;
+                                    case STPSourceStatusCanceled: {
+                                        NSDictionary *error = [self->errorCodes valueForKey:kErrorKeySourceStatusCanceled];
+                                        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
+                                    }
+                                        break;
+                                    case STPSourceStatusPending: {
+                                        NSDictionary *error = [self->errorCodes valueForKey:kErrorKeySourceStatusPending];
+                                        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
+                                    }
+                                        break;
+                                    case STPSourceStatusFailed: {
+                                        NSDictionary *error = [self->errorCodes valueForKey:kErrorKeySourceStatusFailed];
+                                        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
+                                    }
+                                        break;
+                                    case STPSourceStatusUnknown: {
+                                        NSDictionary *error = [self->errorCodes valueForKey:kErrorKeySourceStatusUnknown];
+                                        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
+                                    }
+                                        break;
+                                }
+                            }
+                        }];
+                    }
+                }];
+                resolve(source.redirect.url.absoluteString);
+            } else {
+                resolve([self convertSourceObject:source]);
+            }
+        }
+    }];
+}
+
 RCT_EXPORT_METHOD(paymentRequestWithCardForm:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject) {
